@@ -12,10 +12,21 @@ OPT += -DNONPERIODIC
 #OPT += -DKERNEL_SMOOTHING
 #OPT += -DSMOOTH_GRID=512
 
-COMPILE_ON_SYSTEM="MacBook"
+#COMPILE_ON_SYSTEM="MacBook"
 #COMPILE_ON_SYSTEM="MacPro"
-#COMPILE_ON_SYSTEM="Magnus"
 #COMPILE_ON_SYSTEM="OzSTAR"
+COMPILE_ON_SYSTEM="Setonix"
+
+ifeq ($(COMPILE_ON_SYSTEM),"Setonix")
+CC=cc -fopenmp
+PNG_HOME=/software/projects/pawsey1164/cpower
+PNG_LIBS=$(PNG_HOME)/lib
+PNG_INCL=$(PNG_HOME)/include
+PNG_OPTS=-lpng
+HDF5_INCL=${HDF5_DIR}/include -D H5_USE_16_API
+HDF5_LIBS=${HDF5_DIR}/lib
+HDF5_OPTS=-lhdf5
+endif
 
 ifeq ($(COMPILE_ON_SYSTEM),"OzSTAR")
 CC=mpicc
