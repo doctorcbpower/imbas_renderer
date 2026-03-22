@@ -682,23 +682,39 @@ int main(int argc, char *argv[])
             }
 
             sprintf(image_file, "%s.%04d.png", image_file_root, iter);
+
+            /*
+             * For -lock_levels: compute auto-levels NOW, before inpainting,
+             * so inpainted void pixels don't drag vmin down and corrupt the
+             * colour scale.  With SPH + MIN_RHO_FRAC, large void regions are
+             * zero before inpainting; after inpainting they get small
+             * interpolated values that pull vmin very low, compressing the
+             * colour scale so everything meaningful saturates to the top colour.
+             *
+             * Computing levels from the pre-inpainting data means vmin/vmax
+             * reflect only real deposit values — the same pixels that carry
+             * actual density information.  Inpainting then fills voids with
+             * visually consistent colours without affecting the stretch.
+             */
+            if (rcfg.auto_levels && lock_levels && iter == 0) {
+                auto_levels_from_data(&rcfg, global_data, npix_g);
+                fprintf(stdout, "Levels locked (pre-inpaint): vmin=%.3f vmax=%.3f\n",
+                        rcfg.vmin, rcfg.vmax);
+                fflush(stdout);
+                /* Freeze levels now — write_to_png_ex won't recompute them */
+                rcfg.auto_levels = 0;
+            }
+
             write_to_png_ex(image_file,
                             IMAGE_DIMENSIONX, IMAGE_DIMENSIONY,
                             global_data, &rcfg);
 
             /*
-             * Lock levels after frame 0 when -lock_levels is set.
-             * auto_levels_from_data() has already run inside write_to_png_ex
-             * and stored vmin/vmax in rcfg.  Disabling auto_levels now means
-             * all subsequent frames use the same stretch, preventing colormap
-             * flicker in rotation/zoom animations.
+             * For non-lock_levels animation: levels are still auto-computed
+             * inside write_to_png_ex per frame (auto_levels remains 1).
+             * For lock_levels: already frozen above; write_to_png_ex uses
+             * the fixed vmin/vmax without recomputing.
              */
-            if (lock_levels && iter == 0 && rcfg.auto_levels) {
-                rcfg.auto_levels = 0;
-                fprintf(stdout, "Levels locked: vmin=%.3f vmax=%.3f\n",
-                        rcfg.vmin, rcfg.vmax);
-                fflush(stdout);
-            }
         }
 
 
