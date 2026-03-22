@@ -79,7 +79,7 @@ OPTS += -O3 -ffast-math
 ## Usage
 
 ```
-./render_image.exe -input <snapshot> -output <prefix> [options]
+./render_image -input <snapshot> -output <prefix> [options]
 ```
 
 ### Required
@@ -170,7 +170,7 @@ Output frames are named `<prefix>.NNNN.png`.
 ### Single cluster image
 
 ```bash
-./render_image.exe \
+./render_image \
     -input snapshot_122 -output cluster \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.2 \
     -dark_matter -scene cluster \
@@ -180,7 +180,7 @@ Output frames are named `<prefix>.NNNN.png`.
 ### Large volume render
 
 ```bash
-./render_image.exe \
+./render_image \
     -input snapshot_122 -output volume \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 1.0 \
     -dark_matter -colormap plasma \
@@ -200,7 +200,7 @@ make clean && make OPTS="-O3 -ffast-math -DCIC -DNONPERIODIC -DENABLE_OPENMP \
 Then render:
 
 ```bash
-./render_image.exe \
+./render_image \
     -input snapshot_122 -output frames_4k \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 1.0 \
     -dark_matter -colormap magma -ngrid_z 128 \
@@ -213,7 +213,7 @@ Peak RAM with `CIC_STRIP_HEIGHT=64`: 134 MB at 4K×4K×128, 268 MB at 8K×8K×12
 ### 36-frame rotation animation
 
 ```bash
-./render_image.exe \
+./render_image \
     -input snapshot_122 -output frames \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.2 \
     -dark_matter -scene cluster \
@@ -226,7 +226,7 @@ ffmpeg -framerate 24 -i frames.%04d.png -c:v libx264 -pix_fmt yuv420p rotation.m
 ### Zoom sequence
 
 ```bash
-./render_image.exe \
+./render_image \
     -input snapshot_122 -output zoom \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 2.0 \
     -dark_matter -scene cluster \
@@ -339,7 +339,7 @@ vmins, vmaxs = [], []
 
 for snap in snapshots:
     result = subprocess.run([
-        "./render_image.exe", "-input", snap, "-output", "/tmp/probe",
+        "./render_image", "-input", snap, "-output", "/tmp/probe",
         "-isHDF5", "-xc", "56.18", "-yc", "43.35", "-zc", "49.13",
         "-lbox", "0.5", "-dark_matter", "-itmax", "1"
     ], capture_output=True, text=True)
@@ -356,7 +356,7 @@ global_vmax = sorted(vmaxs)[-len(vmaxs) // 20]   # 95th percentile
 # Render full sequence with fixed scale
 for i, snap in enumerate(snapshots):
     subprocess.run([
-        "./render_image.exe", "-input", snap,
+        "./render_image", "-input", snap,
         "-output", f"frame_{i:04d}",
         "-isHDF5", "-xc", "56.18", "-yc", "43.35", "-zc", "49.13",
         "-lbox", "0.5", "-dark_matter", "-colormap", "magma",
@@ -371,7 +371,7 @@ The `-interp_frac` flag shifts particle positions forward by a fraction of the s
 
 ```bash
 # Single interpolated frame: half-way between snapshot_122 and snapshot_123
-./render_image.exe -input snapshot_122 -output frame_half \
+./render_image -input snapshot_122 -output frame_half \
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.5 \
     -dark_matter -colormap magma \
     -no_auto_levels -vmin 0.1 -vmax 3.5 \
@@ -391,7 +391,7 @@ If `-snap_dt` is omitted, velocities are used as raw offsets scaled only by `int
 N=10
 for i in $(seq 0 $N); do
     FRAC=$(python3 -c "print($i / $N)")
-    ./render_image.exe -input snapshot_122 \
+    ./render_image -input snapshot_122 \
         -output "interp_${i}" \
         -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.5 \
         -dark_matter -colormap magma \
@@ -413,7 +413,7 @@ for snap in snapshots:
     for i in range(n_interp):
         frac = i / n_interp
         subprocess.run([
-            "./render_image.exe", "-input", snap,
+            "./render_image", "-input", snap,
             "-output", f"movie_{frame:05d}",
             "-isHDF5", "-xc", "56.18", "-yc", "43.35", "-zc", "49.13",
             "-lbox", "0.5", "-dark_matter", "-colormap", "magma",
