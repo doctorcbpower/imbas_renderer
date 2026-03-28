@@ -38,13 +38,15 @@ On macOS with Homebrew: `brew install gcc hdf5 libpng libyaml`
 
 ## Building
 
-Edit the `COMPILE_ON_SYSTEM` variable at the top of `makefile` to match your platform, then:
+Set the `SYSTEM` variable to match your platform, then:
 
 ```bash
 make clean && make
+# or override on the command line without editing the Makefile
+make SYSTEM=Setonix
 ```
 
-Supported platform targets: `MacBook`, `MacPro`, `Magnus`, `OzSTAR`, `Setonix`, `Naranjo`.
+Supported platform targets: `MacBook`, `MacPro`, `OzSTAR`, `Setonix`, `Naranjo`, `Magnus`.
 
 ### Compile-time options
 
@@ -85,7 +87,7 @@ OPTS += -O3 -ffast-math
 
 ### Configuration files
 
-All parameters can be set in a YAML file and optionally overridden on the command line. This is the recommended workflow for complex or repeated renders — keep a per-project YAML file and override individual values when needed without editing it.
+All parameters can be set in a YAML file and overridden on the command line. This is the recommended workflow for repeated or complex renders — keep a per-project YAML file and override individual values as needed without editing it.
 
 ```bash
 # Use a YAML file alone
@@ -93,33 +95,28 @@ All parameters can be set in a YAML file and optionally overridden on the comman
 
 # YAML baseline with a CLI override (CLI always wins)
 ./render_image -config cluster_run.yaml -itmax 1 -output debug/frame
-
-# Pure CLI — no config file
-./render_image -input snapshot_122 -output frames -isHDF5 ...
 ```
 
 **Precedence order:** compiled defaults → YAML file → command-line flags.
 
-Every YAML key is the CLI flag name without the leading `-`. Boolean flags take `true` or `false`. The `ptype` key accepts a scalar (`ptype: 1`) or a list (`ptype: [0, 1, 4]`).
-
-A fully annotated template is provided in `render.yaml`. A minimal example:
+Every YAML key is the CLI flag name without the leading `-`. A fully annotated template is provided in `render.yaml`. A minimal example:
 
 ```yaml
-input:      snapshots/snap_100
-output:     frames/frame
-isHDF5:     true
-xc:         56.18
-yc:         43.35
-zc:         49.13
-lbox:       0.2
+input:       snapshot_122
+output:      frames/frame
+isHDF5:      true
+xc:          56.18
+yc:          43.35
+zc:          49.13
+lbox:        0.2
 dark_matter: true
-scene:      cluster
-itmax:      36
-rot_dangle: 10.0
-rot_axis:   "0,1,0"
+scene:       cluster
+itmax:       36
+rot_dangle:  10.0
+rot_axis:    "0,1,0"
 lock_levels: true
 fast_smooth: true
-sph_cache:  snap100.hcache
+sph_cache:   snap122.hcache
 ```
 
 ---
@@ -209,7 +206,7 @@ Output frames are named `<prefix>.NNNN.png`.
 
 ## Examples
 
-### Single cluster image (CLI)
+### Single cluster image
 
 ```bash
 ./render_image \
@@ -217,31 +214,6 @@ Output frames are named `<prefix>.NNNN.png`.
     -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.2 \
     -dark_matter -scene cluster \
     -fast_smooth -sph_cache snap122.hcache -itmax 1
-```
-
-### Single cluster image (YAML)
-
-`cluster.yaml`:
-```yaml
-input:      snapshot_122
-output:     cluster
-isHDF5:     true
-xc:         56.18
-yc:         43.35
-zc:         49.13
-lbox:       0.2
-dark_matter: true
-scene:      cluster
-fast_smooth: true
-sph_cache:  snap122.hcache
-itmax:      1
-```
-
-```bash
-./render_image -config cluster.yaml
-
-# Quick debug frame without editing the file
-./render_image -config cluster.yaml -output debug/frame -lbox 0.5
 ```
 
 ### Large volume render
@@ -279,27 +251,13 @@ Peak RAM with `CIC_STRIP_HEIGHT=64`: 134 MB at 4K×4K×128, 268 MB at 8K×8K×12
 
 ### 36-frame rotation animation
 
-`rotation.yaml`:
-```yaml
-input:      snapshot_122
-output:     frames
-isHDF5:     true
-xc:         56.18
-yc:         43.35
-zc:         49.13
-lbox:       0.2
-dark_matter: true
-scene:      cluster
-fast_smooth: true
-sph_cache:  snap122.hcache
-itmax:      36
-rot_dangle: 10.0
-rot_axis:   "0,1,0"
-lock_levels: true
-```
-
 ```bash
-./render_image -config rotation.yaml
+./render_image \
+    -input snapshot_122 -output frames \
+    -isHDF5 -xc 56.18 -yc 43.35 -zc 49.13 -lbox 0.2 \
+    -dark_matter -scene cluster \
+    -fast_smooth -sph_cache snap122.hcache \
+    -itmax 36 -rot_dangle 10 -rot_axis 0,1,0 -lock_levels
 
 ffmpeg -framerate 24 -i frames.%04d.png -c:v libx264 -pix_fmt yuv420p rotation.mp4
 ```
@@ -321,10 +279,13 @@ ffmpeg -framerate 24 -i frames.%04d.png -c:v libx264 -pix_fmt yuv420p rotation.m
 
 | File | Purpose |
 |------|---------|
-| `render_image.c` | Main entry point, render loop, rotation/zoom logic |
+| `render_image.c` | Main entry point and render loop — configuration, orchestration, rotation/zoom logic |
 | `args.c` | CLI argument struct (`cli_args_t`), defaults, and parser |
 | `config.c` | YAML configuration file loader; merges into `cli_args_t` |
-| `io.c` | HDF5 and Gadget binary snapshot reader |
+| `load_particles.c` | Snapshot header reading, particle I/O, and velocity interpolation |
+| `compute_smoothing.c` | Adaptive smoothing length computation; wraps the `KERNEL_SMOOTHING` ifdef |
+| `postprocess.c` | Per-frame density map post-processing: noise floor zeroing and CIC hole inpainting |
+| `io.c` | Low-level HDF5 and Gadget binary snapshot reader |
 | `find_neighbours.c` | Smoothing length computation — O(N) density-grid estimator and exact KNN; disk caching |
 | `flat_kd_tree.h` | Header-only flat-array kd-tree for exact KNN search |
 | `deposit_sph_2d.c` | Direct 2D SPH kernel projection (separate translation unit for compiler inlining) |
@@ -345,7 +306,10 @@ The headers are split into focused modules to minimise recompilation when indivi
 | Header | Contents |
 |--------|---------|
 | `args.h` | `cli_args_t` struct, `cli_args_default()`, `parse_args()` |
-| `config.h` | `load_yaml_config()` — reads YAML into `cli_args_t` |
+| `config.h` | `load_yaml_config()` — reads a YAML file into `cli_args_t` |
+| `load_particles.h` | `load_snapshot_header()`, `load_particles()` |
+| `compute_smoothing.h` | `compute_smoothing_lengths()` |
+| `postprocess.h` | `postprocess_frame()`, `NOISE_FLOOR_FRACTION`, `MAX_FILL_PASSES` |
 | `types.h` | All POD structs and constants (`sim_info`, tree nodes, `ngb_buf_t`, `deposit_particle_t`, `pixel_t`, etc.) |
 | `globals.h` | `extern` globals only (`ThisTask`, `NTask`, `slab_x_lo/hi`, `SnapFormat`) |
 | `tree.h` | Octree build and walk function prototypes |
