@@ -1,0 +1,106 @@
+# render_image configuration file
+# All keys match the equivalent CLI flag (without the leading '-').
+# Command-line flags always override values set here.
+# Omit any key to keep its compiled-in default.
+
+# ---------------------------------------------------------------------------
+# I/O
+# ---------------------------------------------------------------------------
+input:  /Users/00075868/Currentwork/HiSURFS/HiSURFS-6pt25_0093/HiSURFS-6pt25_0093 # snapshot root (no extension)
+output: /Users/00075868/Currentwork/HiSURFS/frame # output image root; frames written as root.NNNN.png
+isHDF5: true
+
+# ---------------------------------------------------------------------------
+# View
+# ---------------------------------------------------------------------------
+xc:    0.5    # centre x  (simulation units, or box-fraction if units: 1)
+yc:    0.5    # centre y
+zc:    0.5    # centre z
+lbox:  1.0    # side length of the rendered volume
+units: 1      # 0 = simulation units; 1 = box-normalised [0,1]
+
+# ---------------------------------------------------------------------------
+# Animation
+# ---------------------------------------------------------------------------
+itmax: 36          # number of frames (fixed box)
+#zoom:  8          # alternative: N zoom-in frames (comment out itmax)
+#zoom_factor: 0.8  # box shrinks by this factor each zoom frame (0 < f < 1)
+
+# ---------------------------------------------------------------------------
+# Rotation  (applied per-frame; 0 = no rotation)
+# ---------------------------------------------------------------------------
+rot_dangle: 10.0       # degrees per frame
+rot_axis:   "0,0,1"   # rotation axis as "x,y,z" (normalised automatically)
+
+# ---------------------------------------------------------------------------
+# Particle selection
+# ---------------------------------------------------------------------------
+# Uncomment one block — or combine multiple ptype entries.
+#all_types: true
+#gas:        true
+dark_matter: true
+#stars:       true
+#ptype: [0, 1, 4]      # explicit list; equivalent to -gas -dark_matter -stars
+
+# ---------------------------------------------------------------------------
+# Scene preset  (sets colormap, opacity, and level defaults in one go)
+# Options: cluster | scattered | filament
+# Individual settings below override the preset.
+# ---------------------------------------------------------------------------
+#scene: cluster
+
+# ---------------------------------------------------------------------------
+# Colour map
+# Options: viridis, magma, inferno, plasma, hot, fire, ice,
+#          grayscale, coolwarm, custom
+# ---------------------------------------------------------------------------
+colormap: magma
+#reverse_colormap: false
+#colormap_file: /path/to/custom_palette.txt
+
+# ---------------------------------------------------------------------------
+# Opacity / transfer function
+# Options: flat, linear, sqrt, power, log, threshold
+# ---------------------------------------------------------------------------
+opacity_func:  sqrt
+opacity:       1.0
+#opacity_gamma:     0.5   # exponent for 'power' function
+#opacity_threshold: 0.5   # cutoff value for 'threshold' function
+
+# ---------------------------------------------------------------------------
+# Background colour  (R,G,B[,A] in [0,1])
+# ---------------------------------------------------------------------------
+bg_color: "0,0,0,1"   # black, fully opaque
+
+# ---------------------------------------------------------------------------
+# Density scaling
+# ---------------------------------------------------------------------------
+#no_auto_levels: false    # set true to use fixed vmin/vmax
+#lock_levels:    false    # auto-level on frame 0, then lock for all frames
+auto_pct_lo: 0.001
+auto_pct_hi: 0.999
+#linear_scale: false      # use linear density instead of log10
+
+# With no_auto_levels: true, these set the fixed log10 density bounds:
+#vmin: -1.0
+#vmax:  4.0
+
+# ---------------------------------------------------------------------------
+# Kernel smoothing  (requires -DKERNEL_SMOOTHING at compile time)
+# ---------------------------------------------------------------------------
+#num_ngb:    32        # neighbours for smoothing-length estimate
+#sph_eta:    1.2       # h = eta * dist_to_Nth_neighbour
+#sph_cache:  cache/smooth.bin
+#fast_smooth: false    # true = fast O(N) grid estimator; false = KNN (~30 s)
+
+# ---------------------------------------------------------------------------
+# 3-D grid depth
+# Default: min(IMAGE_DIMENSIONX, 256).  Reduce for lower memory use.
+# ---------------------------------------------------------------------------
+#ngrid_z: 128
+
+# ---------------------------------------------------------------------------
+# Time interpolation  (sub-snapshot frames using stored velocities)
+# ---------------------------------------------------------------------------
+#interp_frac: 0.0   # 0 = snapshot positions; 1 = one full interval ahead
+#snap_dt:     0.05  # snapshot time interval in simulation units

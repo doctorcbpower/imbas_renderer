@@ -8,6 +8,8 @@
 
 #include "header.h"
 #include "colormap.h"
+#include "args.h"
+#include "config.h"
 
 #define BUFSIZE 500
 #define rhocrit 27.755
@@ -110,11 +112,9 @@ static void print_usage(const char *prog)
 
 int main(int argc, char *argv[])
 {
-    int i, j;
-    char file_root[256]       = "";
+    int i;
     char filename[256]        = "";
     char image_file[256]      = "";
-    char image_file_root[256] = "";
 
     long long NumPart = 0, NumPartRead = 0;
 
@@ -123,41 +123,18 @@ int main(int argc, char *argv[])
     int   *ptype = NULL;
     float *smoothing_length = NULL;
 
-    int isHDF5        = 0;
     int isDistributed = 0;
-    int read_velocities_flag = 0;
 
     struct sim_info header;
     memset(&header, 0, sizeof(header));
 
     int ptype_mask = (1 << 1);   /* default: dark matter */
 
-    double xcen = 0.5, ycen = 0.5, zcen = 0.5;
-    double xc = 0.0, yc = 0.0, zc = 0.0, lbox = 0.0;
-    int itmax    = 1;
-    int zoom          = 0;       /* -zoom N: shrink box each iter            */
-    float zoom_factor = 0.5f;   /* -zoom_factor f: multiply box by f per iter */
-    int boxunits = 0;
-
-    /* Rotation: axis (unit vector) and degrees per frame.
-     * Default axis is z (0,0,1) — rotates in the x-y plane.
-     * Use -rot_axis x,y,z and -rot_dangle deg to change. */
-    float rot_axis[3]  = {0.0f, 0.0f, 1.0f};
-    float rot_dangle   = 0.0f;   /* degrees per frame; 0 = no rotation */
-
-    /* Colour / opacity configuration – start from defaults */
-    render_config_t rcfg;
-    render_config_default(&rcfg);
-    int lock_levels = 0;  /* -lock_levels: auto-level once on frame 0, then fix */
-
+    double xc= 0.0, yc= 0.0, zc = 0.0;
     clock_t tstart, tfinish;
-    int   ngrid_z   = 0;     /* depth of 3-D grid; 0 = auto (see below)  */
-    int   num_ngb   = 32;    /* neighbours for smoothing length estimate */
-    char  sph_cache[512] = "";  /* -sph_cache <file>: cache smoothing lengths */
-    int   fast_smooth   = 0;    /* -fast_smooth: O(N) grid estimator */
-    float interp_frac   = 0.0f; /* -interp_frac f: fractional position interpolation */
-    float snap_dt       = 0.0f; /* -snap_dt val: snapshot time interval (sim units) */
-    float sph_eta   = 1.2f;  /* h = eta * dist_to_Nth_neighbour           */
+
+    cli_args_t cfg;
+    cli_args_default(&cfg);
 
 #ifdef ENABLE_MPI
     MPI_Init(&argc, &argv);
@@ -175,182 +152,37 @@ int main(int argc, char *argv[])
 #endif
         return 0;
     }
-
-    /* ---- Parse command line ---- */
-    i = 1;
-    while (i < argc) {
-        /* Positional / simulation args */
-        if      (strcmp(argv[i], "-input")  == 0) sprintf(file_root,       "%s", argv[++i]);
-        else if (strcmp(argv[i], "-output") == 0) sprintf(image_file_root, "%s", argv[++i]);
-        else if (strcmp(argv[i], "-units")  == 0) boxunits = atoi(argv[++i]);
-        else if (strcmp(argv[i], "-xc")     == 0) xcen     = atof(argv[++i]);
-        else if (strcmp(argv[i], "-yc")     == 0) ycen     = atof(argv[++i]);
-        else if (strcmp(argv[i], "-zc")     == 0) zcen     = atof(argv[++i]);
-        else if (strcmp(argv[i], "-lbox")   == 0) lbox     = atof(argv[++i]);
-        else if (strcmp(argv[i], "-itmax")  == 0) itmax    = atoi(argv[++i]);
-        else if (strcmp(argv[i], "-isHDF5") == 0) isHDF5   = 1;
-
-        /* Particle type selection */
-        else if (strcmp(argv[i], "-all_types")   == 0) ptype_mask = -1;
-        else if (strcmp(argv[i], "-gas")         == 0) {
-            if (ptype_mask == (1 << 1)) ptype_mask = 0;
-            ptype_mask |= (1 << 0);
+    
+    for (int k = 1; k < argc - 1; k++) {
+        if (strcmp(argv[k], "-config") == 0) {
+            snprintf(cfg.config_path, sizeof(cfg.config_path),
+                     "%s", argv[k + 1]);
+            break;
         }
-        else if (strcmp(argv[i], "-dark_matter") == 0) ptype_mask |= (1 << 1);
-        else if (strcmp(argv[i], "-stars")       == 0) {
-            if (ptype_mask == (1 << 1)) ptype_mask = 0;
-            ptype_mask |= (1 << 4);
-        }
-        else if (strcmp(argv[i], "-ptype") == 0) {
-            int t = atoi(argv[++i]);
-            if (t >= 0 && t < (int)(sizeof(int)*8)) {
-                if (ptype_mask == (1 << 1)) ptype_mask = 0;
-                ptype_mask |= (1 << t);
-            }
-        }
-
-
-        /* ---- Scene presets ---- */
-        else if (strcmp(argv[i], "-scene") == 0) {
-            const char *scene = argv[++i];
-            if (strcmp(scene, "cluster") == 0) {
-                /* One dominant halo: sqrt opacity compresses bright core
-                 * so outskirts remain visible. magma, tight lo clip. */
-                rcfg.auto_pct_lo   = 0.05f;
-                rcfg.auto_pct_hi   = 1.0f;
-                rcfg.opacity_func  = OPACITY_SQRT;
-                rcfg.global_alpha  = 1.0f;
-                rcfg.colormap      = CMAP_MAGMA;
-                rcfg.log_scale     = 1;
-            } else if (strcmp(scene, "scattered") == 0) {
-                /* Many halos at similar densities: flat opacity gives
-                 * equal visual weight to all. plasma, wider lo clip. */
-                rcfg.auto_pct_lo   = 0.10f;
-                rcfg.auto_pct_hi   = 1.0f;
-                rcfg.opacity_func  = OPACITY_FLAT;
-                rcfg.global_alpha  = 1.0f;
-                rcfg.colormap      = CMAP_PLASMA;
-                rcfg.log_scale     = 1;
-            } else if (strcmp(scene, "filament") == 0) {
-                /* Large-scale structure: power opacity (gamma=0.5)
-                 * compresses dense nodes so filaments stay visible.
-                 * inferno, very low lo clip to show faint sheets. */
-                rcfg.auto_pct_lo   = 0.02f;
-                rcfg.auto_pct_hi   = 1.0f;
-                rcfg.opacity_func  = OPACITY_POWER;
-                rcfg.opacity_gamma = 0.5f;
-                rcfg.global_alpha  = 1.0f;
-                rcfg.colormap      = CMAP_INFERNO;
-                rcfg.log_scale     = 1;
-            } else {
-                fprintf(stderr,
-                    "Unknown -scene '%s'. Options: cluster, scattered, filament\n",
-                    scene);
-            }
-        }
-
-        /* ---- Colour / opacity args ---- */
-        else if (strcmp(argv[i], "-colormap") == 0)
-            render_config_parse_arg(&rcfg, "colormap", argv[++i]);
-
-        else if (strcmp(argv[i], "-reverse_colormap") == 0)
-            rcfg.reverse = 1;
-
-        else if (strcmp(argv[i], "-opacity") == 0)
-            render_config_parse_arg(&rcfg, "opacity", argv[++i]);
-
-        else if (strcmp(argv[i], "-opacity_func") == 0)
-            render_config_parse_arg(&rcfg, "opacity_func", argv[++i]);
-
-        else if (strcmp(argv[i], "-opacity_gamma") == 0)
-            render_config_parse_arg(&rcfg, "opacity_gamma", argv[++i]);
-
-        else if (strcmp(argv[i], "-opacity_threshold") == 0)
-            render_config_parse_arg(&rcfg, "opacity_threshold", argv[++i]);
-
-        else if (strcmp(argv[i], "-vmin") == 0)
-            render_config_parse_arg(&rcfg, "vmin", argv[++i]);
-
-        else if (strcmp(argv[i], "-vmax") == 0)
-            render_config_parse_arg(&rcfg, "vmax", argv[++i]);
-
-        else if (strcmp(argv[i], "-linear_scale") == 0)
-            rcfg.log_scale = 0;
-
-        else if (strcmp(argv[i], "-colormap_file") == 0)
-            render_config_parse_arg(&rcfg, "colormap_file", argv[++i]);
-
-        else if (strcmp(argv[i], "-bg_color") == 0)
-            render_config_parse_arg(&rcfg, "bg_color", argv[++i]);
-
-        else if (strcmp(argv[i], "-zoom") == 0)
-            zoom = atoi(argv[++i]);
-        else if (strcmp(argv[i], "-zoom_factor") == 0) {
-            zoom_factor = (float)atof(argv[++i]);
-            if (zoom_factor <= 0.0f || zoom_factor >= 1.0f) {
-                fprintf(stderr, "zoom_factor must be in (0,1), got %g — using 0.5\n",
-                        zoom_factor);
-                zoom_factor = 0.5f;
-            }
-        }
-        else if (strcmp(argv[i], "-rot_axis") == 0) {
-            /* Expect "x,y,z" — normalised below */
-            sscanf(argv[++i], "%f,%f,%f",
-                   &rot_axis[0], &rot_axis[1], &rot_axis[2]);
-            float len = sqrtf(rot_axis[0]*rot_axis[0] +
-                               rot_axis[1]*rot_axis[1] +
-                               rot_axis[2]*rot_axis[2]);
-            if (len > 0.0f) {
-                rot_axis[0] /= len;
-                rot_axis[1] /= len;
-                rot_axis[2] /= len;
-            }
-        }
-        else if (strcmp(argv[i], "-rot_dangle") == 0)
-            rot_dangle = (float)atof(argv[++i]);
-        else if (strcmp(argv[i], "-num_ngb") == 0)
-            num_ngb = atoi(argv[++i]);
-        else if (strcmp(argv[i], "-sph_eta") == 0)
-            sph_eta = (float)atof(argv[++i]);
-        else if (strcmp(argv[i], "-sph_cache") == 0)
-            snprintf(sph_cache, sizeof(sph_cache), "%s", argv[++i]);
-        else if (strcmp(argv[i], "-fast_smooth") == 0)
-            fast_smooth = 1;
-        else if (strcmp(argv[i], "-interp_frac") == 0)
-            interp_frac = (float)atof(argv[++i]);
-        else if (strcmp(argv[i], "-snap_dt") == 0)
-            snap_dt = (float)atof(argv[++i]);
-        else if (strcmp(argv[i], "-ngrid_z") == 0)
-            ngrid_z = atoi(argv[++i]);
-
-        /* Auto-levels: on by default, can be disabled */
-        else if (strcmp(argv[i], "-no_auto_levels") == 0)
-            rcfg.auto_levels = 0;
-        else if (strcmp(argv[i], "-lock_levels") == 0)
-            lock_levels = 1;
-        else if (strcmp(argv[i], "-auto_pct_lo") == 0)
-            render_config_parse_arg(&rcfg, "auto_pct_lo", argv[++i]);
-        else if (strcmp(argv[i], "-auto_pct_hi") == 0)
-            render_config_parse_arg(&rcfg, "auto_pct_hi", argv[++i]);
-
-        i++;
     }
+    if (cfg.config_path[0])
+        load_yaml_config(cfg.config_path, &cfg);   /* YAML baseline */
+    
+    parse_args(argc, argv, &cfg);                  /* CLI wins      */
+    
+    /* Derive simulation-unit centre from user input */
+    xc = cfg.xcen; yc = cfg.ycen; zc = cfg.zcen;
 
     /* ---- Setup ---- */
-    check_input_filenames(filename, file_root, isHDF5, &isDistributed);
+    check_input_filenames(filename, cfg.file_root, cfg.isHDF5, &isDistributed);
 
     if (ThisTask == 0) {
-        if (xcen > 0 || lbox > 0) {
-            fprintf(stdout, "Centre: (%g|%g|%g)\n", xcen, ycen, zcen);
-            fprintf(stdout, "Box Length: %g\n", lbox);
+        if (cfg.xcen > 0 || cfg.lbox > 0) {
+            fprintf(stdout, "Centre: (%g|%g|%g)\n", cfg.xcen, cfg.ycen, cfg.zcen);
+            fprintf(stdout, "Box Length: %g\n", cfg.lbox);
         }
         fprintf(stdout, "Render configuration:\n");
-        render_config_print(&rcfg);
+        render_config_print(&cfg.rcfg);
         fprintf(stdout, "Reading header...\n");
         fflush(stdout);
     }
 
-    if (isHDF5)
+    if (cfg.isHDF5)
         read_hdf5_header(filename, &header, &NumPart);
     else
         read_gadget_binary_header(filename, &header, &NumPart);
@@ -359,7 +191,7 @@ int main(int argc, char *argv[])
         fprintf(stdout, "Number of particle types in file: %d\n",
                 header.num_types);
         for (i = 0; i < (int)(sizeof(int)*8); i++) {
-            if (ptype_mask != -1 && !(ptype_mask & (1 << i))) continue;
+            if (cfg.ptype_mask != -1 && !(cfg.ptype_mask & (1 << i))) continue;
             if (i >= header.num_types || header.nall[i] == 0)
                 fprintf(stdout,
                     "Warning: type %d requested but not present\n", i);
@@ -369,11 +201,11 @@ int main(int argc, char *argv[])
 
     if (header.BoxSize == 0)
         header.BoxSize = 1.e6;
-    else if (boxunits == 1) {
-        xcen *= header.BoxSize; ycen *= header.BoxSize;
-        zcen *= header.BoxSize; lbox *= header.BoxSize;
+    else if (cfg.boxunits == 1) {
+        cfg.xcen *= header.BoxSize; cfg.ycen *= header.BoxSize;
+        cfg.zcen *= header.BoxSize; cfg.lbox *= header.BoxSize;
     }
-    xc = xcen; yc = ycen; zc = zcen;
+    xc= cfg.xcen; yc= cfg.ycen; zc = cfg.zcen;
 
     if (ThisTask == 0) {
         fprintf(stdout, "Number of files: %d\n",       header.NumFiles);
@@ -387,7 +219,7 @@ int main(int argc, char *argv[])
     z     = (float *)malloc(sizeof(float) * NumPart);
     ptype = (int   *)malloc(sizeof(int)   * NumPart);
     
-    int do_interp  = (interp_frac != 0.0f && isHDF5);
+    int do_interp  = (cfg.interp_frac != 0.0f && cfg.isHDF5);
     
     if (do_interp) {
         vx = (float *)malloc(sizeof(float) * NumPart);
@@ -402,11 +234,11 @@ int main(int argc, char *argv[])
     
     if (ThisTask == 0) { fprintf(stdout, "Reading particles...\n"); fflush(stdout); }
     
-    if (isHDF5)
-        read_particles_from_hdf5(file_root, x, y, z, vx, vy, vz, ptype,
+    if (cfg.isHDF5)
+        read_particles_from_hdf5(cfg.file_root, x, y, z, vx, vy, vz, ptype,
                                   header.NumFiles, &NumPartRead, do_interp);
     else
-        read_particles_from_gadget_binary(file_root, x, y, z, ptype,
+        read_particles_from_gadget_binary(cfg.file_root, x, y, z, ptype,
                                            header.NumFiles, &NumPartRead);
    
     fprintf(stdout, "NumPart: %llu\t NumPartRead: %llu\n", NumPart,NumPartRead);
@@ -435,11 +267,11 @@ int main(int argc, char *argv[])
          *     ./render_image.exe -input snapA ... -interp_frac $f -snap_dt 0.05
          *   done
          */
-        float scale = (snap_dt > 0.0f) ? interp_frac * snap_dt : interp_frac;
+        float scale = (cfg.snap_dt > 0.0f) ? cfg.interp_frac * cfg.snap_dt : cfg.interp_frac;
         
         fprintf(stdout,
                 "Interpolating positions: frac=%.3f dt=%g scale=%g\n",
-                interp_frac, snap_dt, scale);
+                cfg.interp_frac, cfg.snap_dt, scale);
         fflush(stdout);
         
         for (long long k = 0; k < NumPartRead; k++) {
@@ -452,18 +284,18 @@ int main(int argc, char *argv[])
     }
 
     select_particles(x, y, z, ptype, header.BoxSize, NumPartRead,
-                     xc, yc, zc, lbox, ptype_mask, &NumPart);
+                     xc, yc, zc, cfg.lbox, cfg.ptype_mask, &NumPart);
 
 #ifdef ENABLE_MPI
     split_across_tasks_as_slabs(x, y, z, &NumPart, xc, yc, zc,
-                             (float)lbox, (float)header.BoxSize);
+                             (float)cfg.lbox, (float)header.BoxSize);
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
 
     if (NumPart == 0) {
         if (ThisTask == 0)
             fprintf(stdout, "Error: no particles selected (mask=0x%x)\n",
-                    (unsigned)ptype_mask);
+                    (unsigned)cfg.ptype_mask);
 #ifdef ENABLE_MPI
         MPI_Finalize();
 #endif
@@ -488,22 +320,22 @@ int main(int argc, char *argv[])
         return 1;
     }
     {
-        float xmin_v = (float)(xc - 0.5 * lbox);
-        float ymin_v = (float)(yc - 0.5 * lbox);
-        float zmin_v = (float)(zc - 0.5 * lbox);
+        float xmin_v = (float)(xc - 0.5 * cfg.lbox);
+        float ymin_v = (float)(yc - 0.5 * cfg.lbox);
+        float zmin_v = (float)(zc - 0.5 * cfg.lbox);
         tstart = clock();
         /* Pass physical voxel size as xmin_v so find_neighbours can apply
          * a resolution-based h cap.  ymin_v/zmin_v are unused by the new code. */
-        float vox_size_v = (float)lbox / (float)IMAGE_DIMENSIONX;
-        if (fast_smooth) {
-            find_neighbours_fast((int)NumPart, smoothing_length, num_ngb,
-                                 x, y, z, vox_size_v, 0.0f, 0.0f, sph_eta,
-                                 sph_cache[0] ? sph_cache : NULL,
+        float vox_size_v = (float)cfg.lbox / (float)IMAGE_DIMENSIONX;
+        if (cfg.fast_smooth) {
+            find_neighbours_fast((int)NumPart, smoothing_length, cfg.num_ngb,
+                                 x, y, z, vox_size_v, 0.0f, 0.0f, cfg.sph_eta,
+                                 cfg.sph_cache[0] ? cfg.sph_cache : NULL,
                                  IMAGE_DIMENSIONX);
         } else {
-            find_neighbours_cached((int)NumPart, smoothing_length, num_ngb,
-                                   x, y, z, vox_size_v, 0.0f, 0.0f, sph_eta,
-                                   sph_cache[0] ? sph_cache : NULL);
+            find_neighbours_cached((int)NumPart, smoothing_length, cfg.num_ngb,
+                                   x, y, z, vox_size_v, 0.0f, 0.0f, cfg.sph_eta,
+                                   cfg.sph_cache[0] ? cfg.sph_cache : NULL);
         }
         tfinish = clock();
         fprintf(stdout, "find_neighbours - time: %.2f s\n",
@@ -528,7 +360,7 @@ int main(int argc, char *argv[])
     float *global_data = (float *)calloc(IMAGE_DIMENSIONX * IMAGE_DIMENSIONY,
                                           sizeof(float));
 
-    float BoundingBox = (float)lbox;
+    float BoundingBox = (float)cfg.lbox;
     float theta       = 0.0f;
 
     /*
@@ -548,7 +380,7 @@ int main(int argc, char *argv[])
      *   v_rot = v*cos(a) + (k x v)*sin(a) + k*(k.v)*(1-cos(a))
      * where k is the unit rotation axis and a is the angle in radians.
      */
-    int n_frames = (zoom > 0) ? zoom : itmax;
+    int n_frames = (cfg.zoom > 0) ? cfg.zoom : cfg.itmax;
 
     /* Working coordinate arrays for rotation */
     float *rx = (float *)malloc(NumPart * sizeof(float));
@@ -567,9 +399,9 @@ int main(int argc, char *argv[])
          * Angle = iter * rot_dangle (degrees).  For iter=0 this is 0 so
          * rx/ry/rz == x/y/z and the first frame is always un-rotated. */
         {
-            float angle_rad = (float)(iter) * rot_dangle * (float)M_PI / 180.0f;
+            float angle_rad = (float)(iter) * cfg.rot_dangle * (float)M_PI / 180.0f;
             float ca = cosf(angle_rad), sa = sinf(angle_rad);
-            float kx = rot_axis[0], ky = rot_axis[1], kz = rot_axis[2];
+            float kx = cfg.rot_axis[0], ky = cfg.rot_axis[1], kz = cfg.rot_axis[2];
             for (long long pi = 0; pi < NumPart; pi++) {
                 float vx = x[pi] - (float)xc;
                 float vy = y[pi] - (float)yc;
@@ -590,7 +422,7 @@ int main(int argc, char *argv[])
          * 4096^3 at 4K = 256 GB. Cap at 256 slices which is sufficient
          * for all projection renders and keeps memory sane.
          * Override explicitly with -ngrid_z if you need finer z-sampling. */
-        int effective_ngrid_z = ngrid_z > 0 ? ngrid_z
+        int effective_ngrid_z = cfg.ngrid_z > 0 ? cfg.ngrid_z
                               : (IMAGE_DIMENSIONX < 256 ? IMAGE_DIMENSIONX : 256);
 
         tstart = clock();
@@ -686,7 +518,7 @@ int main(int argc, char *argv[])
 #undef MAX_FILL_PASSES
             }
 
-            sprintf(image_file, "%s.%04d.png", image_file_root, iter);
+            sprintf(image_file, "%s.%04d.png", cfg.image_file_root, iter);
 
             /*
              * For -lock_levels: compute auto-levels NOW, before inpainting,
@@ -701,18 +533,18 @@ int main(int argc, char *argv[])
              * actual density information.  Inpainting then fills voids with
              * visually consistent colours without affecting the stretch.
              */
-            if (rcfg.auto_levels && lock_levels && iter == 0) {
-                auto_levels_from_data(&rcfg, global_data, npix_g);
+            if (cfg.rcfg.auto_levels && cfg.lock_levels && iter == 0) {
+                auto_levels_from_data(&cfg.rcfg, global_data, npix_g);
                 fprintf(stdout, "Levels locked (pre-inpaint): vmin=%.3f vmax=%.3f\n",
-                        rcfg.vmin, rcfg.vmax);
+                        cfg.rcfg.vmin, cfg.rcfg.vmax);
                 fflush(stdout);
                 /* Freeze levels now — write_to_png_ex won't recompute them */
-                rcfg.auto_levels = 0;
+                cfg.rcfg.auto_levels = 0;
             }
 
             write_to_png_ex(image_file,
                             IMAGE_DIMENSIONX, IMAGE_DIMENSIONY,
-                            global_data, &rcfg);
+                            global_data, &cfg.rcfg);
 
             /*
              * For non-lock_levels animation: levels are still auto-computed
@@ -724,7 +556,7 @@ int main(int argc, char *argv[])
 
 
         /* Shrink the view box only when in zoom mode */
-        if (zoom > 0) BoundingBox *= zoom_factor;
+        if (cfg.zoom > 0) BoundingBox *= cfg.zoom_factor;
     }
     free(rx); free(ry); free(rz);
 
