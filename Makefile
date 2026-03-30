@@ -26,11 +26,11 @@ OPT += -DENABLE_OPENMP
 # ---------------------------------------------------------------------------
 # Target system  (uncomment exactly one)
 # ---------------------------------------------------------------------------
-SYSTEM ?= MacBook
+#SYSTEM ?= MacBook
 #SYSTEM ?= MacPro
 #SYSTEM ?= OzSTAR
 #SYSTEM ?= Setonix
-#SYSTEM ?= Naranjo
+SYSTEM ?= Naranjo
 #SYSTEM ?= Magnus
 
 # ---------------------------------------------------------------------------
@@ -113,7 +113,8 @@ YAML_OPTS ?= $(shell pkg-config --libs-only-l  yaml-0.1 2>/dev/null)
 # ---------------------------------------------------------------------------
 # Compilation flags
 # ---------------------------------------------------------------------------
-CFLAGS  := -Wall -Wextra -ffast-math -O3 -std=c99 $(OPT)
+#CFLAGS  := -Wall -Wextra -ffast-math -O3 -std=c99 $(OPT)
+CFLAGS  := -Wall -Wextra -ffast-math -O3 -std=gnu17 $(OPT)
 
 # ---------------------------------------------------------------------------
 # Include paths
