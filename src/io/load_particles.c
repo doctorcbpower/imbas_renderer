@@ -237,8 +237,10 @@ static int reorder_by_id(const char    *snap_root,
      */
     read_particles_from_hdf5(snap_root,
                              xR, yR, zR,
-                             (unsigned long long *)idR, ptR,
-                             num_files, &nRead);
+                             (unsigned long long *)idR,
+                             ptR,
+                             -1,      /* ptype_mask */
+                             &nRead);
 
     /* ---- Sort this snapshot by ID ---- */
     id_index_t *sorted = (id_index_t *)malloc(sizeof(id_index_t) * nRead);
@@ -520,13 +522,6 @@ int load_particles_hermite(const cli_args_t      *cfg,
         fprintf(stdout, "Reading snapshot B: %s\n", cfg->snap_b); fflush(stdout);
     }
     
-    
-    
-//    read_particles_from_hdf5(cfg->snap_b, xB, yB, zB,
-//                              NULL,       /* partid not needed — index-matched */
-//                              ptB,
-//                              headerB.NumFiles, &nReadB);
-
     long long nMatchB = 0;
     if (reorder_by_id(cfg->snap_b, headerB.NumFiles,
                       ref_sorted, nReadA,
@@ -545,7 +540,7 @@ int load_particles_hermite(const cli_args_t      *cfg,
     }
     
     if (ThisTask == 0) {
-        fprintf(stdout, "snap_a read: %lld  snap_b read: %lld\n", nReadA, nReadB);
+        fprintf(stdout, "snap_a read: %lld  snap_b read: %lld\n", nReadA, nMatchB);
         fflush(stdout);
     }
 
