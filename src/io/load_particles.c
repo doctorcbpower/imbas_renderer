@@ -531,7 +531,7 @@ int load_particles_hermite(const cli_args_t      *cfg,
     
     //*NumPartRead_out = (nReadA < nReadB) ? nReadA : nReadB;
 
-    *NumPartRead_out = nMatchB;
+    *NumPartRead_out = nReadA;
     
     if (ThisTask == 0) {
         fprintf(stdout, "  matched %lld / %lld particles from B\n",
